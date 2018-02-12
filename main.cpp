@@ -88,38 +88,25 @@ int main() {
   }
 
   //  sockaddr_in ip4_addr{};
-
+  //
   //  ip4_addr.sin_family = AF_INET;
   //  ip4_addr.sin_port = htons(3490);
   //  inet_pton(AF_INET, "10.0.7.1", &ip4_addr.sin_addr);
-
-  //  auto err = bind(fd, (sockaddr *)&ip4_addr, sizeof(ip4_addr));
-  //  if (err != 0) {
+  //
+  //  if (bind(fd, (sockaddr *)&ip4_addr, sizeof(ip4_addr)) < 0) {
   //    std::cout << "Failed to bind a local address" << std::endl;
   //    return -1;
   //  }
 
-  ifaliasreq addreq{};
-
-  addreq.ifra_addr.sa_len = sizeof(addreq.ifra_addr.sa_len);
-  addreq.ifra_addr.sa_family = AF_INET;
-  inet_aton("10.0.7.1", &((struct sockaddr_in *)&addreq.ifra_addr)->sin_addr);
-
-  addreq.ifra_mask.sa_len = sizeof(addreq.ifra_mask);
-  inet_aton("255.255.255.0", &(reinterpret_cast<struct sockaddr_in *>(&addreq.ifra_mask))->sin_addr);
-  strlcpy(addreq.ifra_name, "utun10", sizeof(addreq.ifra_name));
-
-  if (ioctl(fd, SIOCAIFADDR, &addreq) < 0) {
-    std::cerr << "ERROR: ioctl(SIOCAIFADDR)" << std::endl;
-    close(fd);
-    return -1;
-  }
+  system("ipconfig set utun10 MANUAL 10.0.7.1 16");
 
   char s[100];
   while (scanf("%s", s) != EOF) {
     if (s[0] == 'q') break;
     sleep(1);
   }
+
+  system("ipconfig set utun10 NONE");
 
   close(fd);
 }
