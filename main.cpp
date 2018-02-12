@@ -12,35 +12,33 @@
 #include <fcntl.h>
 
 #include <arpa/inet.h>
+#include <net/if.h>
 
-int open_utun() {
-  sockaddr_ctl addr{};
-  ctl_info info{};
-  int err;
-
+int open_utun(u_int32_t unit) {
   // Protocol families are mapped onto address families
   // --------------------------------------------------
   // Notes:
   //  - KEXT Controls and Notifications
   //    https://developer.apple.com/library/content/documentation/Darwin/Conceptual/NKEConceptual/control/control.html
-  auto soc = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
-  if (soc < 0) {
-    return soc;
+  auto fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
+  if (fd == -1) {
+    std::cerr << "socket(SYSPROTO_CONTROL)" << std::endl;
+    return -1;
   }
 
   // set the socket non-blocking
-  err = fcntl(soc, F_SETFL, O_NONBLOCK);
+  auto err = fcntl(fd, F_SETFL, O_NONBLOCK);
   if (err != 0) {
-    close(soc);
+    close(fd);
     return err;
   }
 
   // set close-on-exec flag
-  auto flags = fcntl(soc, F_GETFD);
+  auto flags = fcntl(fd, F_GETFD);
   flags |= FD_CLOEXEC;
-  err = fcntl(soc, F_SETFD, flags);
+  err = fcntl(fd, F_SETFD, flags);
   if (err != 0) {
-    close(soc);
+    close(fd);
     return err;
   }
 
@@ -49,44 +47,71 @@ int open_utun() {
   // Notes:
   //  - CTLIOCGINFO
   //    https://developer.apple.com/documentation/kernel/ctliocginfo?language=objc
-  strncpy(info.ctl_name, UTUN_CONTROL_NAME, MAX_KCTL_NAME);
-  err = ioctl(soc, CTLIOCGINFO, &info);
-  if (err != 0) {
-    close(soc);
-    return err;
+  //  - strlcpy
+  //    https://en.wikipedia.org/wiki/C_string_handling
+  ctl_info ci{};
+
+  if (strlcpy(ci.ctl_name, UTUN_CONTROL_NAME, sizeof(ci.ctl_name)) >= sizeof(ci.ctl_name)) {
+    std::cerr << "ERROR: UTUN_CONTROL_NAME is too long" << std::endl;
+    return -1;
   }
 
-  addr.sc_len     = sizeof(addr);
-  addr.sc_family  = AF_SYSTEM;
-  addr.ss_sysaddr = AF_SYS_CONTROL;
-  addr.sc_id      = info.ctl_id;
-  addr.sc_unit    = 0;
-
-  err = connect(soc, (struct sockaddr *)&addr, sizeof(addr));
-  if (err != 0) {
-   close(soc);
-   return err;
+  if (ioctl(fd, CTLIOCGINFO, &ci) == -1) {
+    std::cerr << "ERROR: ioctl(CTLIOCGINFO)" << std::endl;
+    close(fd);
+    return -1;
   }
 
-  return soc;
+  sockaddr_ctl sc{};
+
+  sc.sc_id      = ci.ctl_id;
+  sc.sc_len     = sizeof(sc);
+  sc.sc_family  = AF_SYSTEM;
+  sc.ss_sysaddr = AF_SYS_CONTROL;
+  sc.sc_unit    = unit;
+
+  if (connect(fd, (struct sockaddr *)&sc, sizeof(sc)) == -1) {
+    std::cerr << "ERROR: connect(AF_SYS_CONTROL)" << std::endl;
+    close(fd);
+    return -1;
+  }
+
+  return fd;
 }
 
+
+
 int main() {
-  int soc = open_utun();
-  if (soc >= 0) {
-    printf("A tun interface has been created.\n");
+  auto fd = open_utun(static_cast<u_int32_t >(strtol("10.0.7.1", nullptr, 10) + 1));
+  if (fd >= 0) {
+    printf("INFO: A tun interface has been created.\n");
   }
 
-  sockaddr_in ip4_addr{};
+  //  sockaddr_in ip4_addr{};
 
-  ip4_addr.sin_family = AF_INET;
-  ip4_addr.sin_port = htons(3490);
-  inet_pton(AF_INET, "10.0.100.1", &ip4_addr.sin_addr);
+  //  ip4_addr.sin_family = AF_INET;
+  //  ip4_addr.sin_port = htons(3490);
+  //  inet_pton(AF_INET, "10.0.7.1", &ip4_addr.sin_addr);
 
-  // bind an address
-  auto err = bind(soc, (sockaddr *)&ip4_addr, sizeof(ip4_addr));
-  if (err != 0) {
-    std::cout << "Failed to bind a local address" << std::endl;
+  //  auto err = bind(fd, (sockaddr *)&ip4_addr, sizeof(ip4_addr));
+  //  if (err != 0) {
+  //    std::cout << "Failed to bind a local address" << std::endl;
+  //    return -1;
+  //  }
+
+  ifaliasreq addreq{};
+
+  addreq.ifra_addr.sa_len = sizeof(addreq.ifra_addr.sa_len);
+  addreq.ifra_addr.sa_family = AF_INET;
+  inet_aton("10.0.7.1", &((struct sockaddr_in *)&addreq.ifra_addr)->sin_addr);
+
+  addreq.ifra_mask.sa_len = sizeof(addreq.ifra_mask);
+  inet_aton("255.255.255.0", &(reinterpret_cast<struct sockaddr_in *>(&addreq.ifra_mask))->sin_addr);
+  strlcpy(addreq.ifra_name, "utun10", sizeof(addreq.ifra_name));
+
+  if (ioctl(fd, SIOCAIFADDR, &addreq) < 0) {
+    std::cerr << "ERROR: ioctl(SIOCAIFADDR)" << std::endl;
+    close(fd);
     return -1;
   }
 
@@ -96,5 +121,5 @@ int main() {
     sleep(1);
   }
 
-  close(soc);
+  close(fd);
 }
