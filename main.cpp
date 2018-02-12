@@ -11,6 +11,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include <arpa/inet.h>
+
 int open_utun() {
   sockaddr_ctl addr{};
   ctl_info info{};
@@ -54,8 +56,8 @@ int open_utun() {
     return err;
   }
 
-  addr.sc_len     = static_cast<u_char>(sizeof(addr));
-  addr.sc_family  = static_cast<u_char>(AF_SYSTEM);
+  addr.sc_len     = sizeof(addr);
+  addr.sc_family  = AF_SYSTEM;
   addr.ss_sysaddr = AF_SYS_CONTROL;
   addr.sc_id      = info.ctl_id;
   addr.sc_unit    = 0;
@@ -66,16 +68,26 @@ int open_utun() {
    return err;
   }
 
-  // bind an address
-  // ...
-
   return soc;
 }
 
 int main() {
   int soc = open_utun();
   if (soc >= 0) {
-    printf("ok\n");
+    printf("A tun interface has been created.\n");
+  }
+
+  sockaddr_in ip4_addr{};
+
+  ip4_addr.sin_family = AF_INET;
+  ip4_addr.sin_port = htons(3490);
+  inet_pton(AF_INET, "10.0.100.1", &ip4_addr.sin_addr);
+
+  // bind an address
+  auto err = bind(soc, (sockaddr *)&ip4_addr, sizeof(ip4_addr));
+  if (err != 0) {
+    std::cout << "Failed to bind a local address" << std::endl;
+    return -1;
   }
 
   char s[100];
