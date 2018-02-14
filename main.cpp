@@ -1,20 +1,19 @@
 #include <iostream>
-
 #include <sys/kern_control.h>
-
-
 #include <netinet/in.h>
-
 #include <net/if_utun.h>
 #include <sys/ioctl.h>
 #include <sys/kern_event.h>
 #include <unistd.h>
 #include <fcntl.h>
-
 #include <arpa/inet.h>
 #include <net/if.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
 
 int open_utun(u_int32_t unit) {
+
   // Protocol families are mapped onto address families
   // --------------------------------------------------
   // Notes:
@@ -79,34 +78,58 @@ int open_utun(u_int32_t unit) {
   return fd;
 }
 
-
+void printSome(unsigned char c[], int len, char *pipe) {
+  for (int i = 0; i < len; i++) {
+    if (i % 0x10 == 0) {
+      fprintf(stderr, "\n%s %04x ", pipe, i);
+    }
+    if (i % 8 == 0) {
+      fprintf(stderr, " ");
+    }
+    fprintf(stderr, "%02x ", c[i]);
+  }
+  fprintf(stderr, "\n\n");
+}
 
 int main() {
-  auto fd = open_utun(static_cast<u_int32_t >(strtol("10.0.7.1", nullptr, 10) + 1));
-  if (fd >= 0) {
+  auto sock = open_utun(static_cast<u_int32_t >(strtol("10.0.7.1", nullptr, 10) + 1));
+  if (sock >= 0) {
     printf("INFO: A tun interface has been created.\n");
   }
 
-  //  sockaddr_in ip4_addr{};
-  //
-  //  ip4_addr.sin_family = AF_INET;
-  //  ip4_addr.sin_port = htons(3490);
-  //  inet_pton(AF_INET, "10.0.7.1", &ip4_addr.sin_addr);
-  //
-  //  if (bind(fd, (sockaddr *)&ip4_addr, sizeof(ip4_addr)) < 0) {
-  //    std::cout << "Failed to bind a local address" << std::endl;
-  //    return -1;
-  //  }
+  system("ifconfig utun10 inet 10.0.7.1 10.0.7.1 mtu 1500 up");
 
-  system("ipconfig set utun10 MANUAL 10.0.7.1 16");
+  // http://www.geekpage.jp/programming/macosX-network/select-with-timeout.php
+  fd_set fds{}, readfds{};
+  char buf[2048];
+  int maxfd = sock;
+  struct timeval tv{};
+  struct icmphdr *icmphdrptr;
+  struct iphdr *iphdrptr;
 
-  char s[100];
-  while (scanf("%s", s) != EOF) {
-    if (s[0] == 'q') break;
-    sleep(1);
+  FD_ZERO(&readfds);
+  FD_SET(sock, &readfds);
+
+  tv.tv_sec = 10;
+  tv.tv_usec = 0;
+
+  while (1) {
+    memcpy(&fds, &readfds, sizeof(fd_set));
+    if (select(maxfd + 1, &fds, nullptr, nullptr, &tv) == 0) {
+      printf("timeout\n");
+      break;
+    }
+    if (FD_ISSET(sock, &fds)) {
+      memset(buf, 0, sizeof(buf));
+      recv(sock, buf, sizeof(buf), 0);
+      iphdrptr = (struct iphdr *)buf;
+      auto tmp = buf + (iphdrptr->ihl * 4);
+      icmphdrptr = static_cast<struct icmphdr *>(tmp);
+      printf("%s\n", buf);
+    }
   }
 
-  system("ipconfig set utun10 NONE");
+  close(sock);
 
-  close(fd);
+  return 0;
 }
