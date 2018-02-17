@@ -8,9 +8,11 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <net/if.h>
-#include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 int open_utun(u_int32_t unit) {
 
@@ -103,9 +105,9 @@ int main() {
   fd_set fds{}, readfds{};
   char buf[2048];
   int maxfd = sock;
-  struct timeval tv{};
-  struct icmphdr *icmphdrptr;
-  struct iphdr *iphdrptr;
+  timeval tv{};
+  icmp *icmp_ptr;
+  ip *ip_ptr;
 
   FD_ZERO(&readfds);
   FD_SET(sock, &readfds);
@@ -121,11 +123,12 @@ int main() {
     }
     if (FD_ISSET(sock, &fds)) {
       memset(buf, 0, sizeof(buf));
-      recv(sock, buf, sizeof(buf), 0);
-      iphdrptr = (struct iphdr *)buf;
-      auto tmp = buf + (iphdrptr->ihl * 4);
-      icmphdrptr = static_cast<struct icmphdr *>(tmp);
-      printf("%s\n", buf);
+      ssize_t n = read(sock, buf, sizeof(buf));
+      if (n < 0) {
+        std::cerr << "read()" << std::endl;
+        return 1;
+      }
+      printf("%ld, %s\n", n, buf);
     }
   }
 
