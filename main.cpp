@@ -10,6 +10,8 @@
 #include <net/if.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
+#include <netinet/tcp.h>
+#include <netinet/udp.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -106,8 +108,6 @@ int main() {
   char buf[2048];
   int maxfd = sock;
   timeval tv{};
-  icmp *icmp_ptr;
-  ip *ip_ptr;
 
   FD_ZERO(&readfds);
   FD_SET(sock, &readfds);
@@ -126,13 +126,37 @@ int main() {
       ssize_t n = read(sock, buf, sizeof(buf));
       if (n < 0) {
         std::cerr << "read()" << std::endl;
+        close(sock);
         return 1;
       }
-      printf("%ld, %s\n", n, buf);
+      if (n == 0) {
+        break;
+      }
+      auto ip_header = reinterpret_cast<ip*>(buf);
+      std::cout << "size of ip header:  " << sizeof(ip) << std::endl;
+      std::cout << "ip_tos:             " << htons(ip_header->ip_tos) << std::endl;
+      std::cout << "ip_len:             " << htons(ip_header->ip_len) << std::endl;
+      std::cout << "ip_id:              " << htons(ip_header->ip_id) << std::endl;
+      std::cout << "ip_off:             " << htons(ip_header->ip_off) << std::endl;
+      std::cout << "ip_ttl:             " << htons(ip_header->ip_ttl) << std::endl;
+      std::cout << "ip_p:               " << htons(ip_header->ip_p) << std::endl;
+      std::cout << "ip_sum:             " << htons(ip_header->ip_sum) << std::endl;
+      std::cout << "ip_src:             " << inet_ntoa(ip_header->ip_src) << std::endl;
+      std::cout << "ip_dst:             " << inet_ntoa(ip_header->ip_dst) << std::endl;
+      std::cout << "----------"           << std::endl;
+      auto udp_header = reinterpret_cast<udphdr*>(buf + sizeof(ip) + 4);
+      std::cout << "size of udp header: " << sizeof(udphdr) << std::endl;
+      std::cout << "uh_sport:           " << htons(udp_header->uh_sport) << std::endl;
+      std::cout << "uh_dport:           " << htons(udp_header->uh_dport) << std::endl;
+      std::cout << "un_ulen:            " << htons(udp_header->uh_ulen) << std::endl;
+      std::cout << "uh_sum:             " << htons(udp_header->uh_sum) << std::endl;
+      std::cout << "--------------------------------------------------" << std::endl;
+      std::cout << "n:                  " << n << std::endl;
+      auto offset = sizeof(ip) + 4 + sizeof(udphdr);
+      std::cout << "buf:                " << buf + offset << std::endl;
+      std::cout << std::endl;
     }
   }
-
-  close(sock);
 
   return 0;
 }
